@@ -212,3 +212,12 @@
 .auth-footer a:hover {
   text-decoration: underline;
 }
+
+.recovery-card { max-width: 430px; }
+.recovery-message { text-align: center; }
+.recovery-message > span { display: inline-flex; color: var(--success); font-size: 3.2rem; margin-bottom: 1rem; }
+.recovery-message h1 { font-size: 1.8rem; margin-bottom: 0.7rem; }
+.recovery-message p { color: var(--text-secondary); font-size: 0.93rem; line-height: 1.6; }
+.recovery-message p strong { color: var(--text-primary); font-weight: 600; }
+.recovery-link { display: block; text-decoration: none; margin-top: 1.7rem; }
+.simple-link { display: inline-block; margin-top: 1rem; color: var(--accent); font-size: 0.85rem; text-decoration: none; }
