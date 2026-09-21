@@ -1,0 +1,3 @@
+.profile-fields small { color: var(--text-secondary); font-size: .68rem; font-weight: 400; }
+.profile-error { color: var(--error); font-weight: 500; }
+.profile-intro button:disabled { cursor: not-allowed; opacity: .55; }

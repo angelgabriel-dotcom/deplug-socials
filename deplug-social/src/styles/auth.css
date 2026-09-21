@@ -161,6 +161,25 @@
   align-items: center;
 }
 
+.input-wrapper.password-match input { border-color: var(--success); box-shadow: 0 0 0 3px rgba(0, 200, 150, 0.1); }
+.input-wrapper.password-mismatch input { border-color: rgba(255, 77, 77, 0.6); }
+.biometric-status { position: relative; display: flex; align-items: center; gap: 0.65rem; min-height: 0; max-height: 0; opacity: 0; overflow: hidden; color: var(--text-secondary); transition: max-height .28s ease, opacity .25s ease, margin .25s ease; }
+.biometric-confirmation:focus-within .biometric-status, .biometric-status.is-verified, .biometric-status.is-mismatch { max-height: 58px; opacity: 1; margin-top: 0.2rem; }
+.biometric-scan { position: relative; display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto; border: 1px solid var(--border); border-radius: 10px; color: var(--accent); background: rgba(108, 99, 255, 0.08); overflow: hidden; }
+.biometric-scan::after { content: ''; position: absolute; left: 5px; right: 5px; height: 1px; top: 3px; background: var(--accent); box-shadow: 0 0 9px 2px rgba(108, 99, 255, 0.8); animation: biometric-sweep 1.9s ease-in-out infinite; }
+.biometric-scan svg { position: relative; z-index: 1; font-size: 1.35rem; }
+.biometric-copy { display: flex; flex: 1; flex-direction: column; gap: 0.14rem; min-width: 0; }
+.biometric-copy strong { color: var(--text-primary); font-size: 0.74rem; font-weight: 600; }
+.biometric-copy small { color: var(--text-secondary); font-size: 0.68rem; }
+.biometric-check { color: var(--success); font-size: 1.1rem; animation: biometric-pop .3s ease-out both; }
+.biometric-status.is-verified .biometric-scan { border-color: rgba(0, 200, 150, 0.55); color: var(--success); background: rgba(0, 200, 150, 0.08); }
+.biometric-status.is-verified .biometric-scan::after { background: var(--success); box-shadow: 0 0 9px 2px rgba(0, 200, 150, 0.7); animation-duration: .85s; }
+.biometric-status.is-mismatch .biometric-scan { color: var(--error); border-color: rgba(255, 77, 77, 0.4); background: rgba(255, 77, 77, 0.06); }
+.biometric-status.is-mismatch .biometric-scan::after { background: var(--error); box-shadow: none; animation: none; top: 50%; }
+@keyframes biometric-sweep { 0%, 100% { transform: translateY(0); opacity: .35; } 50% { transform: translateY(27px); opacity: 1; } }
+@keyframes biometric-pop { from { transform: scale(.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .biometric-scan::after, .biometric-check { animation: none; } }
+
 .auth-btn {
   background: linear-gradient(135deg, var(--accent), #8b83ff);
   color: #ffffff;

@@ -12,22 +12,25 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import NotFound from './pages/NotFound';
 import Admin from './pages/Admin';
+import ProtectedRoute from './components/ProtectedRoute';
+import BackButton from './components/BackButton';
 
 function App() {
   return (
     <Router>
       <Navbar />
+      <BackButton />
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/browse" element={<Browse />} />
         <Route path="/account/:accountId" element={<AccountDetails />} />
         <Route path="/checkout/:accountId" element={<Checkout />} />
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/admin" element={<Admin />} />
+        <Route path="/admin" element={<ProtectedRoute role="admin"><Admin /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </Router>

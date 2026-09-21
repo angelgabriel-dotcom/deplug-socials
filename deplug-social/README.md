@@ -1,3 +1,36 @@
+# Deplug Social
+
+## Development
+
+Start the API and frontend together:
+
+```bash
+npm run dev:full
+```
+
+The frontend runs at `http://localhost:5173` and the API runs at `http://localhost:3001`.
+
+## Seeded development users
+
+These accounts exist only in the local SQLite development database:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Admin | `admin@deplugsocial.test` | `AdminTest123!` |
+| Buyer | `buyer@deplugsocial.test` | `BuyerTest123!` |
+
+Never use these credentials in production. The local database lives in `server/data/` and is excluded from Git.
+
+## API endpoints
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `GET /api/admin/check`
+
+---
+
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

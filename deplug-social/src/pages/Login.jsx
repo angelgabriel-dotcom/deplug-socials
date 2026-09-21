@@ -1,19 +1,24 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { MdEmail, MdLock } from 'react-icons/md';
 import '../styles/auth.css';
+import { api } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 
 function Login() {
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const { beginSession } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.email || !formData.password) {
       setError('All fields are required');
@@ -21,10 +26,14 @@ function Login() {
     }
     setError('');
     setLoading(true);
-    setTimeout(() => {
+    try {
+      const auth = await api.login(formData.email, formData.password);
+      beginSession(auth);
+      navigate(location.state?.from || (auth.user.role === 'admin' ? '/admin' : '/dashboard'), { replace: true });
+    } catch (requestError) {
+      setError(requestError.message);
       setLoading(false);
-      console.log('Login data:', formData);
-    }, 2000);
+    }
   };
 
   return (

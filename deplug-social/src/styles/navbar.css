@@ -67,6 +67,9 @@
   border-color: var(--accent);
 }
 
+.logout-btn { background: transparent; border: 1px solid var(--border); border-radius: 8px; color: var(--text-secondary); padding: 0.52rem 0.78rem; cursor: pointer; font: inherit; font-size: 0.85rem; }
+.logout-btn:hover { color: var(--text-primary); border-color: var(--accent); }
+
 .mobile-menu-btn { display: none; }
 
 body.light-mode {
@@ -86,5 +89,6 @@ body.light-mode {
   .navbar-links.menu-open { display: flex; }
   .navbar-links a { font-size: 0.82rem; }
   .navbar-links .nav-register { padding: 0.65rem; text-align: center; }
+  .logout-btn { text-align: left; padding: 0.65rem; }
   .toggle-btn { padding: 0.55rem; }
 }

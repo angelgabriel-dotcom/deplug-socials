@@ -23,3 +23,10 @@ body {
   font-family: 'Inter', sans-serif;
   min-height: 100vh;
 }
+
+.route-loader { min-height: calc(100vh - 73px); display: grid; place-items: center; color: var(--text-secondary); font-size: .9rem; }
+
+.app-back-button { position: fixed; z-index: 90; top: 86px; left: 1rem; display: inline-flex; align-items: center; gap: .3rem; border: 1px solid var(--border); border-radius: 9px; padding: .5rem .65rem; background: color-mix(in srgb, var(--bg-card) 90%, transparent); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: .78rem; box-shadow: 0 8px 24px rgba(0, 0, 0, .15); backdrop-filter: blur(10px); transition: border-color .2s ease, color .2s ease, transform .2s ease; }
+.app-back-button:hover { border-color: var(--accent); color: var(--text-primary); transform: translateX(-2px); }
+.app-back-button svg { font-size: 1rem; }
+@media (max-width: 760px) { .app-back-button { top: 82px; left: .75rem; } }
