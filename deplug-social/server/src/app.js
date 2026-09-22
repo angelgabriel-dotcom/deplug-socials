@@ -231,7 +231,7 @@ app.get('/api/listings/:id', (req, res, next) => {
 app.post('/api/payments/paystack/initialize', authRequired, async (req, res, next) => {
   try {
     releaseExpiredPaymentReservations();
-    const { listingId, contactName, channel } = req.body;
+    const { listingId, contactName } = req.body;
     const contactEmail = req.user.email;
 
     if (!listingId) return res.status(400).json({ message: 'Listing ID is required.' });
@@ -262,7 +262,6 @@ app.post('/api/payments/paystack/initialize', authRequired, async (req, res, nex
           currency: paystackCurrency,
           reference,
           callback_url: process.env.PAYSTACK_CALLBACK_URL || `${process.env.CLIENT_ORIGIN || 'http://localhost:5173'}/payment/verify`,
-          channels: channel === 'transfer' ? ['bank_transfer'] : ['card'],
           metadata: JSON.stringify({ orderId: result.lastInsertRowid, listingId: listing.id }),
         }),
       });

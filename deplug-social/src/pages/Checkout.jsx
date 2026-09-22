@@ -1,15 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { MdArrowBack, MdCheckCircle, MdCreditCard, MdLock, MdPayments, MdReceiptLong, MdShield } from 'react-icons/md';
+import { MdArrowBack, MdCheckCircle, MdLock, MdReceiptLong, MdShield } from 'react-icons/md';
 import { accounts, platformMeta } from '../data/accounts';
 import '../styles/checkout.css';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
-
-const paymentMethods = [
-  { id: 'card', label: 'Card payment', description: 'Debit or credit card', icon: MdCreditCard },
-  { id: 'transfer', label: 'Bank transfer', description: 'Instant transfer confirmation', icon: MdPayments },
-];
 
 function Checkout() {
   const { accountId } = useParams();
@@ -18,7 +13,6 @@ function Checkout() {
   const [account, setAccount] = useState(() => accounts.find((item) => item.id === Number(accountId)) || null);
   const [contactName, setContactName] = useState(user?.name || '');
   const [contactEmail, setContactEmail] = useState(user?.email || '');
-  const [paymentMethod, setPaymentMethod] = useState('card');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
 
@@ -71,7 +65,6 @@ function Checkout() {
       const response = await api.initializePaystack({
         listingId: account.id,
         contactName: contactName.trim(),
-        channel: paymentMethod,
       }, token);
       window.location.assign(response.authorizationUrl);
     } catch (requestError) {
@@ -144,35 +137,9 @@ function Checkout() {
             <div className="checkout-step payment-step">
               <span>2</span>
               <div>
-                <h2>Payment method</h2>
-                <p>Select your payment method.</p>
+                <h2>Choose payment at Paystack</h2>
+                <p>Paystack will securely show the payment methods enabled for this store.</p>
               </div>
-            </div>
-            <div className="payment-options">
-              {paymentMethods.map((method) => {
-                const Icon = method.icon;
-                return (
-                  <label
-                    className={`payment-option ${paymentMethod === method.id ? 'selected' : ''}`}
-                    key={method.id}
-                  >
-                    <input
-                      type="radio"
-                      name="payment"
-                      value={method.id}
-                      checked={paymentMethod === method.id}
-                      onChange={() => setPaymentMethod(method.id)}
-                      disabled={isProcessing || isAlreadySold || !user}
-                    />
-                    <Icon />
-                    <span>
-                      <strong>{method.label}</strong>
-                      <small>{method.description}</small>
-                    </span>
-                    <i />
-                  </label>
-                );
-              })}
             </div>
 
             <button
