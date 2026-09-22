@@ -54,7 +54,7 @@ export function ensureDatabaseSchema() {
         price_cents INTEGER NOT NULL CHECK(price_cents > 0),
         description TEXT NOT NULL,
         verified INTEGER NOT NULL DEFAULT 0 CHECK(verified IN (0, 1)),
-        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'published', 'archived', 'sold')),
+        status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'published', 'payment_pending', 'archived', 'sold')),
         login_credential TEXT DEFAULT '',
         password_credential TEXT DEFAULT '',
         recovery_email TEXT DEFAULT '',
@@ -65,7 +65,7 @@ export function ensureDatabaseSchema() {
         FOREIGN KEY(created_by) REFERENCES users(id)
       );
     `);
-  } else if (!tableSql.includes("'sold'") || !tableSql.includes('login_credential')) {
+  } else if (!tableSql.includes("'payment_pending'") || !tableSql.includes('login_credential')) {
     db.pragma('foreign_keys = OFF');
     db.transaction(() => {
       db.exec(`
@@ -82,7 +82,7 @@ export function ensureDatabaseSchema() {
           price_cents INTEGER NOT NULL CHECK(price_cents > 0),
           description TEXT NOT NULL,
           verified INTEGER NOT NULL DEFAULT 0 CHECK(verified IN (0, 1)),
-          status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'published', 'archived', 'sold')),
+          status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'published', 'payment_pending', 'archived', 'sold')),
           login_credential TEXT DEFAULT '',
           password_credential TEXT DEFAULT '',
           recovery_email TEXT DEFAULT '',
@@ -92,8 +92,8 @@ export function ensureDatabaseSchema() {
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY(created_by) REFERENCES users(id)
         );
-        INSERT INTO listings_new (id, platform, title, handle, category, followers, engagement, account_age, audience, price_cents, description, verified, status, created_by, created_at, updated_at)
-        SELECT id, platform, title, handle, category, followers, engagement, account_age, audience, price_cents, description, verified, status, created_by, created_at, updated_at FROM listings;
+        INSERT INTO listings_new (id, platform, title, handle, category, followers, engagement, account_age, audience, price_cents, description, verified, status, login_credential, password_credential, recovery_email, transfer_notes, created_by, created_at, updated_at)
+        SELECT id, platform, title, handle, category, followers, engagement, account_age, audience, price_cents, description, verified, status, login_credential, password_credential, recovery_email, transfer_notes, created_by, created_at, updated_at FROM listings;
         DROP TABLE listings;
         ALTER TABLE listings_new RENAME TO listings;
       `);
@@ -119,6 +119,12 @@ export function ensureDatabaseSchema() {
       FOREIGN KEY(listing_id) REFERENCES listings(id)
     );
   `);
+
+  const orderColumns = db.prepare("PRAGMA table_info(orders)").all().map((column) => column.name);
+  if (!orderColumns.includes('paystack_reference')) db.exec('ALTER TABLE orders ADD COLUMN paystack_reference TEXT');
+  if (!orderColumns.includes('paystack_transaction_id')) db.exec('ALTER TABLE orders ADD COLUMN paystack_transaction_id TEXT');
+  if (!orderColumns.includes('paid_at')) db.exec('ALTER TABLE orders ADD COLUMN paid_at TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS orders_paystack_reference_unique ON orders(paystack_reference) WHERE paystack_reference IS NOT NULL');
 }
 
 // Run schema check immediately
@@ -169,7 +175,7 @@ export function publicListing(listing) {
 export function publicOrder(order) {
   const statusStr = (order.delivery_status || 'delivered').toLowerCase();
   const displayStatus = statusStr === 'delivered' ? 'Delivered' : statusStr === 'processing' ? 'Processing' : 'Cancelled';
-  const isDelivered = statusStr === 'delivered';
+  const isDelivered = statusStr === 'delivered' && order.payment_status === 'completed';
 
   return {
     id: order.order_reference,
@@ -186,6 +192,7 @@ export function publicOrder(order) {
     contactEmail: order.contact_email,
     paymentMethod: order.payment_method,
     paymentStatus: order.payment_status,
+    paystackReference: order.paystack_reference || null,
     status: displayStatus,
     date: new Date(order.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
     createdAt: order.created_at,

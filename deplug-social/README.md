@@ -29,6 +29,22 @@ Never use these credentials in production. The local database lives in `server/d
 - `GET /api/auth/me`
 - `GET /api/admin/check`
 
+## Paystack setup
+
+Create a local `.env` file from `.env.example` and set `PAYSTACK_SECRET_KEY` to a Paystack **test** secret key first. This value is server-only: never use a `VITE_` prefix or add it to frontend code.
+
+The server initializes the transaction, redirects the buyer to Paystack hosted checkout, and independently verifies the completed transaction before it marks an order paid. Configure Paystack's webhook URL as:
+
+```text
+https://your-domain.example/api/payments/paystack/webhook
+```
+
+Set `PAYSTACK_CALLBACK_URL` to:
+
+```text
+https://your-domain.example/payment/verify
+```
+
 ---
 
 # React + Vite

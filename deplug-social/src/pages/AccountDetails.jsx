@@ -38,6 +38,8 @@ function AccountDetails() {
   const meta = platformMeta[account.platform] || { color: '#6c63ff', icon: MdCheckCircle };
   const PlatformIcon = meta.icon;
   const isSold = account.status === 'sold';
+  const paymentPending = account.status === 'payment_pending';
+  const unavailable = isSold || paymentPending;
 
   return (
     <main className="account-detail-page">
@@ -51,8 +53,8 @@ function AccountDetails() {
                 <span className="platform-chip" style={{ color: meta.color, borderColor: `${meta.color}55` }}>
                   <PlatformIcon /> {account.platform}
                 </span>
-                {isSold ? (
-                  <span className="availability sold">Sold</span>
+                {unavailable ? (
+                  <span className="availability sold">{isSold ? 'Sold' : 'Payment pending'}</span>
                 ) : (
                   account.verified && <span className="verified-label"><MdCheckCircle /> Verified listing</span>
                 )}
@@ -89,7 +91,7 @@ function AccountDetails() {
                 <div><span>Platform</span><strong>{account.platform}</strong></div>
                 <div><span>Primary category</span><strong>{account.category}</strong></div>
                 <div><span>Account age</span><strong>{account.age}</strong></div>
-                <div><span>Delivery</span><strong>{isSold ? 'Delivered' : 'Instant after confirmation'}</strong></div>
+                <div><span>Delivery</span><strong>{isSold ? 'Delivered' : paymentPending ? 'Temporarily reserved' : 'After verified payment'}</strong></div>
               </div>
             </section>
           </section>
@@ -100,8 +102,8 @@ function AccountDetails() {
                 <span>One-time purchase</span>
                 <strong>${account.price}</strong>
               </div>
-              {isSold ? (
-                <span className="availability sold">Sold</span>
+              {unavailable ? (
+                <span className="availability sold">{isSold ? 'Sold' : 'Payment pending'}</span>
               ) : (
                 <span className="availability"><MdCheckCircle /> Available</span>
               )}
@@ -114,14 +116,14 @@ function AccountDetails() {
               ))}
             </ul>
 
-            {isSold ? (
-              <span className="purchase-button sold">Account already sold</span>
+            {unavailable ? (
+              <span className="purchase-button sold">{isSold ? 'Account already sold' : 'Checkout is temporarily in progress'}</span>
             ) : (
               <Link className="purchase-button" to={`/checkout/${account.id}`}>Continue to checkout</Link>
             )}
 
             <p className="purchase-caption">
-              <MdLock /> {isSold ? 'Transferred securely to buyer.' : 'Instant credential handover upon payment.'}
+              <MdLock /> {isSold ? 'Transferred securely to buyer.' : paymentPending ? 'This listing is temporarily reserved during payment.' : 'Credential handover begins after verified payment.'}
             </p>
           </aside>
         </div>

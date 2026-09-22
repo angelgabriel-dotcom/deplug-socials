@@ -37,13 +37,6 @@ function Dashboard() {
   const [orders, setOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
 
-  // Sync profile state when user changes
-  useEffect(() => {
-    if (user) {
-      setProfile({ name: user.name, email: user.email, username: user.username });
-    }
-  }, [user]);
-
   // Fetch live orders for the user from backend
   useEffect(() => {
     if (!token) return;

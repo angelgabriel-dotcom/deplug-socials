@@ -31,12 +31,13 @@ export const api = {
   },
   getListing: (id) => request(`/api/listings/${id}`),
 
-  // Orders & Transactions
-  createOrder: (orderData, token) => request('/api/orders', {
+  // Payments
+  initializePaystack: (orderData, token) => request('/api/payments/paystack/initialize', {
     method: 'POST',
     token,
     body: JSON.stringify(orderData),
   }),
+  verifyPaystack: (reference, token) => request(`/api/payments/paystack/verify/${encodeURIComponent(reference)}`, { method: 'POST', token }),
   getMyOrders: (token) => request('/api/orders/me', { token }),
   getOrderByReference: (reference, token) => request(`/api/orders/reference/${reference}`, { token }),
 

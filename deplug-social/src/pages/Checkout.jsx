@@ -20,17 +20,7 @@ function Checkout() {
   const [contactEmail, setContactEmail] = useState(user?.email || '');
   const [paymentMethod, setPaymentMethod] = useState('card');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isComplete, setIsComplete] = useState(false);
-  const [completedOrder, setCompletedOrder] = useState(null);
   const [error, setError] = useState('');
-
-  // Synchronize user profile into contact fields if logged in
-  useEffect(() => {
-    if (user) {
-      setContactName((prev) => prev || user.name || '');
-      setContactEmail((prev) => prev || user.email || '');
-    }
-  }, [user]);
 
   // Fetch fresh listing state from backend
   useEffect(() => {
@@ -55,7 +45,7 @@ function Checkout() {
 
   const meta = platformMeta[account.platform] || { color: '#6c63ff', icon: MdReceiptLong };
   const PlatformIcon = meta.icon;
-  const isAlreadySold = account.status === 'sold';
+  const isAlreadySold = account.status !== 'published';
 
   const completeOrder = async () => {
     if (!contactName.trim() || !contactEmail.trim()) {
@@ -71,58 +61,25 @@ function Checkout() {
     setError('');
     setIsProcessing(true);
 
+    if (!user || !token) {
+      setError('Please log in before continuing to secure payment.');
+      setIsProcessing(false);
+      return;
+    }
+
     try {
-      const response = await api.createOrder({
+      const response = await api.initializePaystack({
         listingId: account.id,
         contactName: contactName.trim(),
-        contactEmail: contactEmail.trim().toLowerCase(),
-        paymentMethod,
+        channel: paymentMethod,
       }, token);
-
-      setCompletedOrder(response.order);
-      setIsComplete(true);
+      window.location.assign(response.authorizationUrl);
     } catch (requestError) {
       setError(requestError.message || 'Unable to complete order. Please try again.');
     } finally {
       setIsProcessing(false);
     }
   };
-
-  if (isComplete && completedOrder) {
-    return (
-      <main className="checkout-page">
-        <section className="checkout-success">
-          <span className="success-icon"><MdCheckCircle /></span>
-          <p className="eyebrow">Order Confirmed</p>
-          <h1>Payment Successful!</h1>
-          <p>
-            Your order for <strong>{completedOrder.title}</strong> has been confirmed and the account credentials
-            are ready for handover.
-          </p>
-
-          <div className="success-order">
-            <span>Order reference</span>
-            <strong>{completedOrder.id}</strong>
-          </div>
-
-          <div className="checkout-success-actions">
-            {user ? (
-              <Link to="/dashboard" className="primary-link">
-                Access Credentials in Dashboard
-              </Link>
-            ) : (
-              <Link to={`/login?email=${encodeURIComponent(contactEmail)}`} className="primary-link">
-                Log In to View Credentials
-              </Link>
-            )}
-            <Link to="/browse" className="secondary-link">
-              Continue Browsing
-            </Link>
-          </div>
-        </section>
-      </main>
-    );
-  }
 
   return (
     <main className="checkout-page">
@@ -139,14 +96,14 @@ function Checkout() {
 
         {!user && (
           <div className="checkout-auth-banner">
-            <span>Already have a Deplug Social account? Log in to connect this purchase directly to your dashboard.</span>
-            <Link to={`/login?redirect=/checkout/${account.id}`}>Log In</Link>
+            <span>Please log in before payment so your verified order is securely linked to your dashboard.</span>
+            <Link to="/login">Log In</Link>
           </div>
         )}
 
         {isAlreadySold && (
           <div className="checkout-error">
-            This account has already been purchased and is no longer available.
+            {account.status === 'sold' ? 'This account has already been purchased and is no longer available.' : 'This account is temporarily reserved while another payment is being completed.'}
           </div>
         )}
 
@@ -205,7 +162,7 @@ function Checkout() {
                       value={method.id}
                       checked={paymentMethod === method.id}
                       onChange={() => setPaymentMethod(method.id)}
-                      disabled={isProcessing || isAlreadySold}
+                      disabled={isProcessing || isAlreadySold || !user}
                     />
                     <Icon />
                     <span>
@@ -222,13 +179,15 @@ function Checkout() {
               className="complete-order-button"
               type="button"
               onClick={completeOrder}
-              disabled={isProcessing || isAlreadySold}
+              disabled={isProcessing || isAlreadySold || !user}
             >
               {isProcessing
                 ? 'Processing payment...'
                 : isAlreadySold
                 ? 'Account Sold'
-                : `Complete order · $${account.price}`}
+                : !user
+                ? 'Log in to pay securely'
+                : `Continue to Paystack · $${account.price}`}
             </button>
             <p className="checkout-disclaimer">
               <MdShield /> Transactions are verified before credential handover.

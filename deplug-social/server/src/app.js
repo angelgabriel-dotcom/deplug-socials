@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import cors from 'cors';
+import crypto from 'node:crypto';
 import express from 'express';
 import { createSession, db, hashToken, publicListing, publicOrder, publicUser } from './db.js';
 
@@ -8,7 +9,87 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const app = express();
 
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173' }));
+app.post('/api/payments/paystack/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  const secretKey = process.env.PAYSTACK_SECRET_KEY;
+  const signature = req.headers['x-paystack-signature'];
+  const expected = secretKey ? crypto.createHmac('sha512', secretKey).update(req.body).digest('hex') : '';
+  if (!secretKey || !signature || signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return res.status(401).end();
+  const event = JSON.parse(req.body.toString('utf8'));
+  if (event.event !== 'charge.success') return res.sendStatus(200);
+  const transaction = event.data;
+  const order = db.prepare('SELECT * FROM orders WHERE paystack_reference = ?').get(transaction.reference);
+  if (order && transaction.amount === order.amount_cents && transaction.currency === order.currency) finalizeVerifiedPayment(order.id, transaction.id);
+  return res.sendStatus(200);
+});
 app.use(express.json({ limit: '20kb' }));
+
+const paystackBaseUrl = 'https://api.paystack.co';
+const paystackCurrency = process.env.PAYSTACK_CURRENCY || 'NGN';
+
+async function paystackRequest(path, options = {}) {
+  const secretKey = process.env.PAYSTACK_SECRET_KEY;
+  if (!secretKey) {
+    const error = new Error('Paystack is not configured. Add PAYSTACK_SECRET_KEY to the server .env file.');
+    error.statusCode = 503;
+    throw error;
+  }
+  let response;
+  try {
+    response = await fetch(`${paystackBaseUrl}${path}`, {
+      ...options,
+      headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json', ...options.headers },
+    });
+  } catch (cause) {
+    const error = new Error('Unable to reach Paystack. Check this server\'s internet connection and try again.');
+    error.statusCode = 502;
+    error.cause = cause;
+    throw error;
+  }
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.status) {
+    const error = new Error(payload?.message || 'Paystack could not process this request.');
+    error.statusCode = 502;
+    throw error;
+  }
+  return payload.data;
+}
+
+function getOrderWithListing(orderId) {
+  return db.prepare(`
+    SELECT orders.*, listings.platform, listings.title, listings.handle, listings.category,
+           listings.followers, listings.engagement, listings.login_credential,
+           listings.password_credential, listings.recovery_email, listings.transfer_notes
+    FROM orders JOIN listings ON listings.id = orders.listing_id WHERE orders.id = ?
+  `).get(orderId);
+}
+
+function releaseExpiredPaymentReservations() {
+  const staleOrders = db.prepare(`SELECT listing_id FROM orders WHERE payment_status = 'pending' AND created_at < datetime('now', '-30 minutes')`).all();
+  if (!staleOrders.length) return;
+  const release = db.transaction(() => {
+    for (const order of staleOrders) {
+      db.prepare("UPDATE orders SET payment_status = 'failed' WHERE listing_id = ? AND payment_status = 'pending'").run(order.listing_id);
+      db.prepare("UPDATE listings SET status = 'published', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'payment_pending'").run(order.listing_id);
+    }
+  });
+  release();
+}
+
+function finalizeVerifiedPayment(orderId, transactionId) {
+  return db.transaction(() => {
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+    if (!order) return { error: 'Order not found.' };
+    if (order.payment_status === 'completed') return { order: getOrderWithListing(orderId) };
+    const sale = db.prepare("UPDATE listings SET status = 'sold', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'payment_pending'").run(order.listing_id);
+    if (sale.changes !== 1) {
+      db.prepare("UPDATE orders SET payment_status = 'failed' WHERE id = ?").run(orderId);
+      return { error: 'This listing is no longer available. Please contact support for a refund.' };
+    }
+    db.prepare("UPDATE orders SET payment_status = 'completed', delivery_status = 'processing', paystack_transaction_id = ?, paid_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .run(String(transactionId || ''), orderId);
+    return { order: getOrderWithListing(orderId) };
+  })();
+}
 
 function authRequired(req, res, next) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
@@ -23,23 +104,6 @@ function authRequired(req, res, next) {
   if (!session) return res.status(401).json({ message: 'Your session has expired. Please log in again.' });
   req.user = session;
   req.sessionToken = token;
-  return next();
-}
-
-function optionalAuth(req, _res, next) {
-  const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-  if (!token) return next();
-
-  const session = db.prepare(`
-    SELECT users.* FROM sessions
-    JOIN users ON users.id = sessions.user_id
-    WHERE sessions.token_hash = ? AND sessions.expires_at > ?
-  `).get(hashToken(token), new Date().toISOString());
-
-  if (session) {
-    req.user = session;
-    req.sessionToken = token;
-  }
   return next();
 }
 
@@ -117,6 +181,7 @@ app.patch('/api/auth/profile', authRequired, (req, res) => {
 
 app.get('/api/listings', (req, res, next) => {
   try {
+    releaseExpiredPaymentReservations();
     const { platform, category, search, status } = req.query;
     let query = 'SELECT * FROM listings WHERE 1=1';
     const params = [];
@@ -152,6 +217,7 @@ app.get('/api/listings', (req, res, next) => {
 
 app.get('/api/listings/:id', (req, res, next) => {
   try {
+    releaseExpiredPaymentReservations();
     const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(req.params.id);
     if (!listing) return res.status(404).json({ message: 'Listing not found.' });
     return res.json({ listing: publicListing(listing) });
@@ -162,69 +228,67 @@ app.get('/api/listings/:id', (req, res, next) => {
    ORDERS / TRANSACTION ENDPOINTS
    ========================================================================== */
 
-app.post('/api/orders', optionalAuth, (req, res, next) => {
+app.post('/api/payments/paystack/initialize', authRequired, async (req, res, next) => {
   try {
-    const { listingId, contactName, contactEmail, paymentMethod } = req.body;
+    releaseExpiredPaymentReservations();
+    const { listingId, contactName, channel } = req.body;
+    const contactEmail = req.user.email;
 
     if (!listingId) return res.status(400).json({ message: 'Listing ID is required.' });
     if (!contactName?.trim()) return res.status(400).json({ message: 'Full name is required.' });
-    if (!contactEmail?.trim() || !emailPattern.test(contactEmail.trim().toLowerCase())) {
-      return res.status(400).json({ message: 'A valid email address is required.' });
-    }
 
     const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(listingId);
     if (!listing) return res.status(404).json({ message: 'Listing not found.' });
 
-    if (listing.status === 'sold') {
-      return res.status(400).json({ message: 'This account has already been purchased.' });
+    if (listing.status !== 'published') return res.status(400).json({ message: 'This listing is not available for purchase.' });
+
+    const reference = `DSP_${crypto.randomUUID().replaceAll('-', '')}`;
+    const orderReference = `ORD-${reference.slice(-10).toUpperCase()}`;
+    const result = db.transaction(() => {
+      const reserved = db.prepare("UPDATE listings SET status = 'payment_pending', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'published'").run(listing.id);
+      if (reserved.changes !== 1) return null;
+      return db.prepare(`INSERT INTO orders (order_reference, user_id, listing_id, amount_cents, currency, contact_name, contact_email, payment_method, payment_status, delivery_status, paystack_reference)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'paystack', 'pending', 'processing', ?)`)
+        .run(orderReference, req.user.id, listing.id, listing.price_cents, paystackCurrency, contactName.trim(), contactEmail, reference);
+    })();
+    if (!result) return res.status(409).json({ message: 'Another buyer has just started checkout for this listing. Please try again later.' });
+
+    try {
+      const checkout = await paystackRequest('/transaction/initialize', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: contactEmail,
+          amount: String(listing.price_cents),
+          currency: paystackCurrency,
+          reference,
+          callback_url: process.env.PAYSTACK_CALLBACK_URL || `${process.env.CLIENT_ORIGIN || 'http://localhost:5173'}/payment/verify`,
+          channels: channel === 'transfer' ? ['bank_transfer'] : ['card'],
+          metadata: JSON.stringify({ orderId: result.lastInsertRowid, listingId: listing.id }),
+        }),
+      });
+      return res.status(201).json({ authorizationUrl: checkout.authorization_url, reference: checkout.reference });
+    } catch (error) {
+      db.transaction(() => {
+        db.prepare("UPDATE orders SET payment_status = 'failed' WHERE id = ?").run(result.lastInsertRowid);
+        db.prepare("UPDATE listings SET status = 'published', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'payment_pending'").run(listing.id);
+      })();
+      throw error;
     }
+  } catch (error) { return next(error); }
+});
 
-    // Determine owner user ID if authenticated or matching email
-    let userId = req.user?.id || null;
-    if (!userId) {
-      const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(contactEmail.trim().toLowerCase());
-      if (existingUser) userId = existingUser.id;
+app.post('/api/payments/paystack/verify/:reference', authRequired, async (req, res, next) => {
+  try {
+    const order = db.prepare('SELECT * FROM orders WHERE paystack_reference = ? AND user_id = ?').get(req.params.reference, req.user.id);
+    if (!order) return res.status(404).json({ message: 'Payment transaction not found.' });
+    const transaction = await paystackRequest(`/transaction/verify/${encodeURIComponent(order.paystack_reference)}`);
+    if (transaction.status !== 'success') return res.status(409).json({ message: 'Payment has not been completed yet.', paymentStatus: transaction.status });
+    if (transaction.amount !== order.amount_cents || transaction.currency !== order.currency || transaction.reference !== order.paystack_reference) {
+      return res.status(409).json({ message: 'Payment verification did not match this order.' });
     }
-
-    // Generate reference code
-    const randomCode = Math.floor(1000 + Math.random() * 9000);
-    const orderReference = `TEST-${randomCode}-2026`;
-
-    const createOrderTransaction = db.transaction(() => {
-      const result = db.prepare(`
-        INSERT INTO orders (
-          order_reference, user_id, listing_id, amount_cents, contact_name, contact_email,
-          payment_method, payment_status, delivery_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', 'delivered')
-      `).run(
-        orderReference,
-        userId,
-        listing.id,
-        listing.price_cents,
-        contactName.trim(),
-        contactEmail.trim().toLowerCase(),
-        paymentMethod || 'card'
-      );
-
-      db.prepare("UPDATE listings SET status = 'sold' WHERE id = ?").run(listing.id);
-
-      return result.lastInsertRowid;
-    });
-
-    const newOrderId = createOrderTransaction();
-    const createdOrder = db.prepare(`
-      SELECT orders.*, listings.platform, listings.title, listings.handle, listings.category,
-             listings.followers, listings.engagement, listings.login_credential,
-             listings.password_credential, listings.recovery_email, listings.transfer_notes
-      FROM orders
-      JOIN listings ON listings.id = orders.listing_id
-      WHERE orders.id = ?
-    `).get(newOrderId);
-
-    return res.status(201).json({
-      order: publicOrder(createdOrder),
-      message: 'Payment confirmed! Account credentials have been delivered.',
-    });
+    const finalized = finalizeVerifiedPayment(order.id, transaction.id);
+    if (finalized.error) return res.status(409).json({ message: finalized.error });
+    return res.json({ order: publicOrder(finalized.order) });
   } catch (error) { return next(error); }
 });
 
@@ -244,7 +308,7 @@ app.get('/api/orders/me', authRequired, (req, res, next) => {
   } catch (error) { return next(error); }
 });
 
-app.get('/api/orders/reference/:reference', optionalAuth, (req, res, next) => {
+app.get('/api/orders/reference/:reference', authRequired, (req, res, next) => {
   try {
     const order = db.prepare(`
       SELECT orders.*, listings.platform, listings.title, listings.handle, listings.category,
@@ -257,9 +321,9 @@ app.get('/api/orders/reference/:reference', optionalAuth, (req, res, next) => {
 
     if (!order) return res.status(404).json({ message: 'Order not found.' });
 
-    const isOwner = req.user && (req.user.id === order.user_id || req.user.email === order.contact_email);
+    const isOwner = req.user.id === order.user_id || req.user.email === order.contact_email || req.user.role === 'admin';
+    if (!isOwner) return res.status(403).json({ message: 'You do not have access to this order.' });
     const result = publicOrder(order);
-    if (!isOwner) result.credentials = null;
 
     return res.json({ order: result });
   } catch (error) { return next(error); }
@@ -315,5 +379,7 @@ app.patch('/api/admin/orders/:id', authRequired, adminRequired, (req, res, next)
 app.use((error, _req, res, next) => {
   void next;
   console.error(error);
-  return res.status(500).json({ message: 'Something went wrong. Please try again.' });
+  const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 500;
+  const message = statusCode < 500 ? error.message : 'Something went wrong. Please try again.';
+  return res.status(statusCode).json({ message });
 });

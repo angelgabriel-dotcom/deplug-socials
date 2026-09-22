@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   MdAdd,
   MdAnalytics,
@@ -7,7 +7,6 @@ import {
   MdDashboard,
   MdGroups,
   MdInventory2,
-  MdMoreHoriz,
   MdReceiptLong,
   MdSearch,
   MdSettings,
@@ -31,10 +30,9 @@ function Admin() {
 
   const [orders, setOrders] = useState([]);
   const [inventory, setInventory] = useState(fallbackAccounts);
-  const [loading, setLoading] = useState(true);
 
   // Load orders and inventory from backend
-  const loadData = () => {
+  const loadData = useCallback(() => {
     if (!token) return;
     Promise.all([
       api.getAdminOrders(token).catch(() => ({ orders: [] })),
@@ -42,13 +40,12 @@ function Admin() {
     ]).then(([ordersRes, listingsRes]) => {
       if (ordersRes?.orders) setOrders(ordersRes.orders);
       if (listingsRes?.listings) setInventory(listingsRes.listings);
-      setLoading(false);
     });
-  };
+  }, [token]);
 
   useEffect(() => {
     loadData();
-  }, [token]);
+  }, [loadData]);
 
   const handleStatusToggle = async (order) => {
     const nextStatus = (order.status || '').toLowerCase() === 'delivered' ? 'processing' : 'delivered';
