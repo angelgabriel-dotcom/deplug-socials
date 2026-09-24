@@ -4,6 +4,7 @@ import { MdArrowBack, MdCheckCircle, MdContentCopy, MdLock, MdSchedule, MdShield
 import { accounts as fallbackAccounts, platformMeta } from '../data/accounts';
 import '../styles/account-details.css';
 import { api } from '../lib/api';
+import { formatNaira } from '../lib/money';
 
 const deliveryPoints = [
   'Secure credential handover after payment confirmation',
@@ -100,7 +101,7 @@ function AccountDetails() {
             <div className="price-row">
               <div>
                 <span>One-time purchase</span>
-                <strong>${account.price}</strong>
+                <strong>{formatNaira(account.price)}</strong>
               </div>
               {unavailable ? (
                 <span className="availability sold">{isSold ? 'Sold' : 'Payment pending'}</span>

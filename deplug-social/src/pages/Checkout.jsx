@@ -5,6 +5,7 @@ import { accounts, platformMeta } from '../data/accounts';
 import '../styles/checkout.css';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
+import { formatNaira } from '../lib/money';
 
 function Checkout() {
   const { accountId } = useParams();
@@ -154,7 +155,7 @@ function Checkout() {
                 ? 'Account Sold'
                 : !user
                 ? 'Log in to pay securely'
-                : `Continue to Paystack · $${account.price}`}
+                : `Continue to Paystack · ${formatNaira(account.price)}`}
             </button>
             <p className="checkout-disclaimer">
               <MdShield /> Transactions are verified before credential handover.
@@ -179,7 +180,7 @@ function Checkout() {
             <div className="summary-lines">
               <div>
                 <span>Account</span>
-                <strong>${account.price}</strong>
+                <strong>{formatNaira(account.price)}</strong>
               </div>
               <div>
                 <span>Delivery</span>
@@ -187,7 +188,7 @@ function Checkout() {
               </div>
               <div className="summary-total">
                 <span>Total</span>
-                <strong>${account.price}</strong>
+                <strong>{formatNaira(account.price)}</strong>
               </div>
             </div>
             <div className="summary-note">

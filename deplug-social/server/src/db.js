@@ -34,6 +34,16 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS password_reset_tokens_user_idx ON password_reset_tokens(user_id, created_at);
 `);
 
 export function ensureDatabaseSchema() {
@@ -108,7 +118,7 @@ export function ensureDatabaseSchema() {
       user_id INTEGER,
       listing_id INTEGER NOT NULL,
       amount_cents INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'USD',
+      currency TEXT NOT NULL DEFAULT 'NGN',
       contact_name TEXT NOT NULL,
       contact_email TEXT NOT NULL,
       payment_method TEXT NOT NULL DEFAULT 'card',
@@ -125,6 +135,11 @@ export function ensureDatabaseSchema() {
   if (!orderColumns.includes('paystack_transaction_id')) db.exec('ALTER TABLE orders ADD COLUMN paystack_transaction_id TEXT');
   if (!orderColumns.includes('paid_at')) db.exec('ALTER TABLE orders ADD COLUMN paid_at TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS orders_paystack_reference_unique ON orders(paystack_reference) WHERE paystack_reference IS NOT NULL');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS listings_status_price_idx ON listings(status, price_cents, id);
+    CREATE INDEX IF NOT EXISTS listings_status_platform_idx ON listings(status, platform, id);
+    CREATE INDEX IF NOT EXISTS listings_status_category_idx ON listings(status, category, id);
+  `);
 }
 
 // Run schema check immediately
@@ -375,6 +390,82 @@ export async function seedDevelopmentUsers() {
       password: 'TasteTrails2026@',
       recovery: 'recovery-food@deplugsocial.test',
       notes: 'Includes original footage folders and CapCut project templates.',
+    },
+    {
+      id: 9,
+      platform: 'Instagram',
+      title: 'Checkout test listing · Instagram',
+      handle: '@demo.ig.checkout',
+      category: 'Demo',
+      followers: '12.4K',
+      engagement: '5.1%',
+      account_age: '2 years',
+      audience: 'Nigeria',
+      price_cents: 150000,
+      description: 'Demo inventory for verifying a complete Paystack checkout, order confirmation, and delivery workflow.',
+      verified: 0,
+      status: 'published',
+      login: 'demo-instagram-login',
+      password: 'test-only-not-a-real-account',
+      recovery: 'demo-instagram@deplugsocial.test',
+      notes: 'Test listing only. No real social-media account or customer access is attached.',
+    },
+    {
+      id: 10,
+      platform: 'TikTok',
+      title: 'Checkout test listing · TikTok',
+      handle: '@demo.tiktok.checkout',
+      category: 'Demo',
+      followers: '24.8K',
+      engagement: '6.3%',
+      account_age: '18 months',
+      audience: 'Nigeria',
+      price_cents: 250000,
+      description: 'Demo inventory for testing successful payment verification and a buyer dashboard order.',
+      verified: 0,
+      status: 'published',
+      login: 'demo-tiktok-login',
+      password: 'test-only-not-a-real-account',
+      recovery: 'demo-tiktok@deplugsocial.test',
+      notes: 'Test listing only. No real social-media account or customer access is attached.',
+    },
+    {
+      id: 11,
+      platform: 'YouTube',
+      title: 'Checkout test listing · YouTube',
+      handle: 'Demo Creator Studio',
+      category: 'Demo',
+      followers: '8.6K',
+      engagement: '4.8%',
+      account_age: '1 year',
+      audience: 'Nigeria',
+      price_cents: 350000,
+      description: 'Demo inventory for testing the payment callback and administrator delivery controls.',
+      verified: 0,
+      status: 'published',
+      login: 'demo-youtube-login',
+      password: 'test-only-not-a-real-account',
+      recovery: 'demo-youtube@deplugsocial.test',
+      notes: 'Test listing only. No real social-media account or customer access is attached.',
+    },
+    {
+      id: 12,
+      platform: 'Facebook',
+      title: 'Checkout test listing · Facebook',
+      handle: 'Demo Marketplace Page',
+      category: 'Demo',
+      followers: '16.2K',
+      engagement: '5.6%',
+      account_age: '3 years',
+      audience: 'Nigeria',
+      price_cents: 500000,
+      description: 'Demo inventory for another complete test purchase without affecting your existing listings.',
+      verified: 0,
+      status: 'published',
+      login: 'demo-facebook-login',
+      password: 'test-only-not-a-real-account',
+      recovery: 'demo-facebook@deplugsocial.test',
+      notes: 'Test listing only. No real social-media account or customer access is attached.',
     },
   ];
 

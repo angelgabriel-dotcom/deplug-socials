@@ -19,6 +19,8 @@ export const api = {
   me: (token) => request('/api/auth/me', { token }),
   updateProfile: (token, name, username) => request('/api/auth/profile', { method: 'PATCH', token, body: JSON.stringify({ name, username }) }),
   logout: (token) => request('/api/auth/logout', { method: 'POST', token }),
+  forgotPassword: (email) => request('/api/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
+  resetPassword: (token, password) => request('/api/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password }) }),
 
   // Listings
   getListings: (params = {}) => {
@@ -43,6 +45,9 @@ export const api = {
 
   // Admin
   getAdminOrders: (token) => request('/api/admin/orders', { token }),
+  getAdminListings: (token) => request('/api/admin/listings', { token }),
+  createAdminListing: (token, listing) => request('/api/admin/listings', { method: 'POST', token, body: JSON.stringify(listing) }),
+  updateAdminListing: (token, id, listing) => request(`/api/admin/listings/${id}`, { method: 'PATCH', token, body: JSON.stringify(listing) }),
   updateOrderStatus: (token, id, deliveryStatus) => request(`/api/admin/orders/${id}`, {
     method: 'PATCH',
     token,

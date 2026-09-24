@@ -20,6 +20,7 @@ import '../styles/dashboard.css';
 import '../styles/dashboard-profile.css';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
+import { formatNaira } from '../lib/money';
 
 const navItems = [
   { id: 'overview', label: 'Overview', icon: MdInventory2 },
@@ -161,7 +162,7 @@ function Overview({ name, orders, loading, onShowOrders }) {
         </div>
         <div>
           <span>Order total</span>
-          <strong>${totalAmount.toFixed(2)}</strong>
+          <strong>{formatNaira(totalAmount)}</strong>
           <small>Total spent</small>
         </div>
       </div>
@@ -363,7 +364,7 @@ function OrderTable({ orders, loading }) {
             </div>
             <span className="order-reference">{order.id}</span>
             <span className="order-date">{order.date}</span>
-            <strong className="order-total">${order.total}</strong>
+            <strong className="order-total">{formatNaira(order.total)}</strong>
             <span className={`order-status ${statusClass}`}>
               <MdCheckCircle /> {order.status}
             </span>

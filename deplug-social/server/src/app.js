@@ -112,6 +112,62 @@ function adminRequired(req, res, next) {
   return next();
 }
 
+function adminListing(listing) {
+  return {
+    ...publicListing(listing),
+    credentials: {
+      login: listing.login_credential || '',
+      password: listing.password_credential || '',
+      recoveryEmail: listing.recovery_email || '',
+      transferNotes: listing.transfer_notes || '',
+    },
+  };
+}
+
+function validateListingPayload(payload) {
+  const requiredFields = ['platform', 'title', 'handle', 'category', 'followers', 'engagement', 'accountAge', 'description'];
+  for (const field of requiredFields) {
+    if (!String(payload[field] || '').trim()) return { error: `${field.replace(/([A-Z])/g, ' $1').toLowerCase()} is required.` };
+  }
+  const price = Number(payload.price);
+  if (!Number.isFinite(price) || price <= 0 || price > 100000000) return { error: 'Enter a valid price in naira.' };
+  const status = String(payload.status || 'draft').toLowerCase();
+  if (!['draft', 'published', 'archived'].includes(status)) return { error: 'Listing status must be draft, published, or archived.' };
+  return {
+    value: {
+      platform: String(payload.platform).trim(), title: String(payload.title).trim(), handle: String(payload.handle).trim(),
+      category: String(payload.category).trim(), followers: String(payload.followers).trim(), engagement: String(payload.engagement).trim(),
+      accountAge: String(payload.accountAge).trim(), audience: String(payload.audience || 'Global').trim() || 'Global',
+      priceCents: Math.round(price * 100), description: String(payload.description).trim(), verified: payload.verified ? 1 : 0, status,
+      login: String(payload.login || '').trim(), password: String(payload.password || '').trim(),
+      recoveryEmail: String(payload.recoveryEmail || '').trim(), transferNotes: String(payload.transferNotes || '').trim(),
+    },
+  };
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
+}
+
+async function sendPasswordResetEmail({ email, name, resetUrl }) {
+  if (!process.env.RESEND_API_KEY) {
+    if (process.env.NODE_ENV !== 'production') console.info(`Password reset link for ${email}: ${resetUrl}`);
+    return process.env.NODE_ENV !== 'production';
+  }
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: process.env.PASSWORD_RESET_EMAIL_FROM || 'Deplug Social <onboarding@resend.dev>', to: [email],
+      subject: 'Reset your Deplug Social password',
+      text: `Hello ${name}, reset your password within 15 minutes: ${resetUrl}`,
+      html: `<p>Hello ${escapeHtml(name)},</p><p>Use this link to reset your password. It expires in 15 minutes.</p><p><a href="${escapeHtml(resetUrl)}">Reset password</a></p><p>If you did not request this, you can ignore this email.</p>`,
+    }),
+  });
+  if (!response.ok) throw new Error('Email provider rejected the password reset email.');
+  return true;
+}
+
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
 /* ==========================================================================
@@ -175,6 +231,42 @@ app.patch('/api/auth/profile', authRequired, (req, res) => {
   return res.json({ user: publicUser(user) });
 });
 
+app.post('/api/auth/forgot-password', async (req, res, next) => {
+  try {
+    const email = req.body.email?.trim().toLowerCase();
+    const genericMessage = 'If an account exists for that email, password reset instructions have been sent.';
+    if (!email || !emailPattern.test(email)) return res.json({ message: genericMessage });
+    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    if (!user || (process.env.NODE_ENV === 'production' && !process.env.RESEND_API_KEY)) return res.json({ message: genericMessage });
+    const recent = db.prepare("SELECT id FROM password_reset_tokens WHERE user_id = ? AND created_at > datetime('now', '-1 minute')").get(user.id);
+    if (recent) return res.json({ message: genericMessage });
+    const rawToken = crypto.randomBytes(32).toString('base64url');
+    const resetUrl = `${process.env.PASSWORD_RESET_URL || `${process.env.CLIENT_ORIGIN || 'http://localhost:5173'}/reset-password`}?token=${encodeURIComponent(rawToken)}`;
+    db.transaction(() => {
+      db.prepare("DELETE FROM password_reset_tokens WHERE expires_at <= CURRENT_TIMESTAMP OR user_id = ?").run(user.id);
+      db.prepare("INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, datetime('now', '+15 minutes'))").run(user.id, hashToken(rawToken));
+    })();
+    try { await sendPasswordResetEmail({ email: user.email, name: user.name, resetUrl }); } catch (error) { console.error('Password reset email failed:', error.message); }
+    return res.json({ message: genericMessage, ...(process.env.NODE_ENV !== 'production' ? { developmentResetUrl: resetUrl } : {}) });
+  } catch (error) { return next(error); }
+});
+
+app.post('/api/auth/reset-password', async (req, res, next) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password || password.length < 8) return res.status(400).json({ message: 'Use a reset link and a password of at least 8 characters.' });
+    const reset = db.prepare(`SELECT * FROM password_reset_tokens WHERE token_hash = ? AND expires_at > CURRENT_TIMESTAMP`).get(hashToken(token));
+    if (!reset) return res.status(400).json({ message: 'This reset link is invalid or has expired. Request a new one.' });
+    const passwordHash = await bcrypt.hash(password, 12);
+    db.transaction(() => {
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, reset.user_id);
+      db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?').run(reset.user_id);
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(reset.user_id);
+    })();
+    return res.json({ message: 'Password updated. Please log in with your new password.' });
+  } catch (error) { return next(error); }
+});
+
 /* ==========================================================================
    LISTINGS ENDPOINTS
    ========================================================================== */
@@ -182,36 +274,52 @@ app.patch('/api/auth/profile', authRequired, (req, res) => {
 app.get('/api/listings', (req, res, next) => {
   try {
     releaseExpiredPaymentReservations();
-    const { platform, category, search, status } = req.query;
-    let query = 'SELECT * FROM listings WHERE 1=1';
+    const { platform, category, search, status, sort = 'featured' } = req.query;
+    const requestedPage = Number.parseInt(req.query.page, 10);
+    const requestedLimit = Number.parseInt(req.query.limit, 10);
+    const limit = Number.isInteger(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 48) : 12;
+    const conditions = ['1=1'];
     const params = [];
 
     if (status) {
-      query += ' AND status = ?';
+      conditions.push('status = ?');
       params.push(status);
     } else {
-      query += " AND status IN ('published', 'sold')";
+      conditions.push("status IN ('published', 'sold')");
     }
 
     if (platform && platform !== 'all') {
-      query += ' AND platform = ?';
+      conditions.push('platform = ?');
       params.push(platform);
     }
 
     if (category && category !== 'all') {
-      query += ' AND category = ?';
+      conditions.push('category = ?');
       params.push(category);
     }
 
     if (search?.trim()) {
-      query += ' AND (title LIKE ? OR handle LIKE ? OR category LIKE ? OR platform LIKE ?)';
+      conditions.push('(title LIKE ? OR handle LIKE ? OR category LIKE ? OR platform LIKE ?)');
       const term = `%${search.trim()}%`;
       params.push(term, term, term, term);
     }
 
-    query += ' ORDER BY id ASC';
-    const rows = db.prepare(query).all(...params);
-    return res.json({ listings: rows.map(publicListing) });
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const total = db.prepare(`SELECT COUNT(*) AS count FROM listings ${where}`).get(...params).count;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const page = Number.isInteger(requestedPage) ? Math.min(Math.max(requestedPage, 1), totalPages) : 1;
+    const orderBy = sort === 'price-low'
+      ? 'price_cents ASC, id DESC'
+      : sort === 'price-high'
+        ? 'price_cents DESC, id DESC'
+        : "CASE status WHEN 'published' THEN 0 WHEN 'payment_pending' THEN 1 ELSE 2 END, verified DESC, id DESC";
+    const rows = db.prepare(`SELECT * FROM listings ${where} ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
+      .all(...params, limit, (page - 1) * limit);
+
+    return res.json({
+      listings: rows.map(publicListing),
+      pagination: { page, limit, total, totalPages, hasNextPage: page < totalPages, hasPreviousPage: page > 1 },
+    });
   } catch (error) { return next(error); }
 });
 
@@ -221,6 +329,48 @@ app.get('/api/listings/:id', (req, res, next) => {
     const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(req.params.id);
     if (!listing) return res.status(404).json({ message: 'Listing not found.' });
     return res.json({ listing: publicListing(listing) });
+  } catch (error) { return next(error); }
+});
+
+/* ==========================================================================
+   ADMIN LISTING MANAGEMENT
+   ========================================================================== */
+
+app.get('/api/admin/listings', authRequired, adminRequired, (req, res, next) => {
+  try {
+    const rows = db.prepare('SELECT * FROM listings ORDER BY updated_at DESC, id DESC').all();
+    return res.json({ listings: rows.map(adminListing) });
+  } catch (error) { return next(error); }
+});
+
+app.post('/api/admin/listings', authRequired, adminRequired, (req, res, next) => {
+  try {
+    const parsed = validateListingPayload(req.body);
+    if (parsed.error) return res.status(400).json({ message: parsed.error });
+    const item = parsed.value;
+    const result = db.prepare(`INSERT INTO listings (
+      platform, title, handle, category, followers, engagement, account_age, audience, price_cents,
+      description, verified, status, login_credential, password_credential, recovery_email, transfer_notes, created_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(item.platform, item.title, item.handle, item.category, item.followers, item.engagement, item.accountAge, item.audience,
+        item.priceCents, item.description, item.verified, item.status, item.login, item.password, item.recoveryEmail, item.transferNotes, req.user.id);
+    const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(result.lastInsertRowid);
+    return res.status(201).json({ listing: adminListing(listing) });
+  } catch (error) { return next(error); }
+});
+
+app.patch('/api/admin/listings/:id', authRequired, adminRequired, (req, res, next) => {
+  try {
+    const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(req.params.id);
+    if (!listing) return res.status(404).json({ message: 'Listing not found.' });
+    if (listing.status === 'sold' || listing.status === 'payment_pending') return res.status(409).json({ message: 'Paid or in-progress listings cannot be edited.' });
+    const parsed = validateListingPayload(req.body);
+    if (parsed.error) return res.status(400).json({ message: parsed.error });
+    const item = parsed.value;
+    db.prepare(`UPDATE listings SET platform = ?, title = ?, handle = ?, category = ?, followers = ?, engagement = ?, account_age = ?, audience = ?, price_cents = ?, description = ?, verified = ?, status = ?, login_credential = ?, password_credential = ?, recovery_email = ?, transfer_notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+      .run(item.platform, item.title, item.handle, item.category, item.followers, item.engagement, item.accountAge, item.audience,
+        item.priceCents, item.description, item.verified, item.status, item.login, item.password, item.recoveryEmail, item.transferNotes, listing.id);
+    return res.json({ listing: adminListing(db.prepare('SELECT * FROM listings WHERE id = ?').get(listing.id)) });
   } catch (error) { return next(error); }
 });
 
